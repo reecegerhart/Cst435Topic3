@@ -6,7 +6,7 @@ Streamlit UI NEVER imports this module -- it does its one read-only query with
 the anon key on its own side.
 
 We store an image's **sha256 hash and shape** in `image_metadata`, never the raw
-pixels (the "store hashes, not raw payloads" invariant). The
+pixels (the "store hashes,not raw payloads" invariant). The
 fitted CNN lives in `run_artifacts` (not anon-readable).
 
 Environment variables (set locally in a .env, and in the Render dashboard):
