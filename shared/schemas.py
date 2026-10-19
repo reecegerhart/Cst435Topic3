@@ -1,114 +1,82 @@
-"""Pydantic request/response models shared by the API and (optionally) the UI.
-
-The contract between the three clouds. The "See-Sense" product is image
-classification with a small CNN plus Grad-CAM explainability. The *shape* of the
-contract is identical to the base template; only the fields change.
-"""
+"""Pydantic models: the contract between Streamlit, FastAPI, and Supabase."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 
-# ---------------------------------------------------------------------------
-# Datasets
-# ---------------------------------------------------------------------------
-class DatasetCreate(BaseModel):
-    """Request body for POST /datasets."""
-
-    name: str = Field(..., min_length=1, max_length=100)
-    n_rows: int = Field(800, ge=100, le=20_000)
-    noise: float = Field(0.1, ge=0.0, le=1.0, description="Pixel noise std.")
-    seed: int = Field(42, description="Seed for the synthetic image generator.")
+class Top5Item(BaseModel):
+    label: int
+    class_name: str
+    prob: float
 
 
-class Dataset(BaseModel):
-    """A dataset row as stored in Supabase."""
-
-    id: int
-    name: str
-    n_rows: int
-    img_size: int
-    n_classes: int
-    created_at: datetime
-
-
-# ---------------------------------------------------------------------------
-# Training
-# ---------------------------------------------------------------------------
-class TrainRequest(BaseModel):
-    """Request body for POST /train."""
-
-    dataset_id: int
-    lr: float = Field(0.01, gt=0.0, description="Adam learning rate.")
-    batch_size: int = Field(32, ge=1)
-    epochs: int = Field(15, ge=1, le=500)
-    test_size: float = Field(0.2, gt=0.0, lt=1.0, description="Held-out fraction.")
-
-
-class ClassMetrics(BaseModel):
-    accuracy: float
-    macro_f1: float
+class PredictResponse(BaseModel):
+    model_name: str = Field(..., description="'baseline' or 'improved'.")
+    run_id: Optional[int] = Field(None, description="runs.id that served this prediction.")
+    prediction_id: Optional[int] = None
+    logged: bool = Field(..., description="True if the prediction was written to Supabase.")
+    label: int
+    class_name: str
+    confidence: float = Field(..., description="Softmax probability of the top class (uncalibrated).")
+    low_confidence: bool = Field(..., description="Top probability below the warning threshold.")
+    probs: List[float]
+    top5: List[Top5Item]
+    image_sha256: str = Field(..., description="SHA-256 of the uploaded bytes. No pixels are stored.")
+    width: int
+    height: int
+    input_png: str = Field(..., description="base64 PNG of the input, at the uploaded size.")
+    cam_png: str = Field(..., description="base64 PNG of the Grad-CAM overlay, same size as the input.")
 
 
 class Run(BaseModel):
-    """A training-run row as stored in Supabase (metrics only)."""
-
     id: int
-    dataset_id: int
-    lr: float
-    batch_size: int
+    name: str
+    model_type: str
+    dataset: str
     epochs: int
-    accuracy: float
-    macro_f1: float
+    batch_size: int
+    lr: float
+    weight_decay: float = 0.0
+    seed: Optional[int] = None
+    hyperparams: Dict[str, Any] = Field(default_factory=dict)
+    train_loss: Optional[float] = None
+    train_acc: Optional[float] = None
+    val_loss: Optional[float] = None
+    val_acc: Optional[float] = None
+    test_loss: Optional[float] = None
+    test_acc: Optional[float] = None
+    history: Optional[Dict[str, List[float]]] = None
+    gallery: Optional[List[Dict[str, Any]]] = None
+    weights_uri: str
     created_at: datetime
 
 
-class TrainResponse(BaseModel):
-    run_id: int
-    metrics: ClassMetrics
+class RunSummary(BaseModel):
+    id: int
+    name: str
+    model_type: str
+    test_acc: Optional[float] = None
 
 
-# ---------------------------------------------------------------------------
-# Prediction  (Grad-CAM explainability)
-# ---------------------------------------------------------------------------
-class PredictResponse(BaseModel):
-    run_id: int
-    label: int
-    class_name: str
-    confidence: float = Field(..., description="Softmax probability of the top class.")
-    probs: List[float]
-    image_sha256: str = Field(..., description="Hash of the input image (no pixels stored).")
-    input_png: str = Field(..., description="base64 PNG of the (preprocessed) input.")
-    cam_png: str = Field(..., description="base64 PNG of the Grad-CAM overlay.")
-    true_class: Optional[str] = Field(
-        None, description="Ground-truth class when predicting a generated sample."
-    )
+class PredictionOut(BaseModel):
+    id: int
+    image_hash: str
+    predicted_label: int
+    predicted_class: str
+    top5: List[Top5Item]
+    served_by_run_id: int
+    created_at: datetime
+    runs: Optional[RunSummary] = Field(None, description="The run that served this prediction.")
 
 
-class PredictSampleRequest(BaseModel):
-    """Request body for POST /predict_sample (no file upload needed)."""
-
-    run_id: int
-    seed: int = Field(0, description="Seed for the generated sample.")
-    true_class: Optional[int] = Field(
-        None, ge=0, description="Force a class index; None picks one at random."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Meta
-# ---------------------------------------------------------------------------
 class ClassesResponse(BaseModel):
     classes: List[str]
     n_classes: int
 
 
-# ---------------------------------------------------------------------------
-# Ops
-# ---------------------------------------------------------------------------
 class Health(BaseModel):
     status: str
     model_loader: bool

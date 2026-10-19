@@ -1,82 +1,71 @@
-"""Synthetic image dataset generator (Fashion-MNIST shaped).
+"""Fashion-MNIST data helpers shared by training (Colab) and the API (Render).
 
-Lives in ``shared`` so BOTH the API tier (to train) and the db/seed script import
-the same generating function. Instead of downloading CIFAR-10 / Fashion-MNIST
-(a network + size cost that is unfriendly to free-tier builds), we synthesize
-small grayscale images whose class is defined by a simple geometric pattern with
-a KNOWN rule, so the numerical pytest test can assert the CNN recovers it and a
-Grad-CAM heatmap has something real to localize.
+Importing this module needs only numpy + Pillow. torchvision is imported lazily
+inside `load_fashion_mnist`, so the API tier never has to install it.
 
-Only dataset *parameters* (n_rows, img_size, noise, seed) are persisted to
-Supabase; the pixels are regenerated deterministically from the seed at train
-time. No real images are stored.
+Splits: the official 60k training set is split into train/val; the official 10k
+test set is NEVER used for training or model selection.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
+from PIL import Image
 
 IMG_SIZE = 28
-# Each class is a distinct shape a small CNN can localize with Grad-CAM.
-CLASS_NAMES: List[str] = ["horizontal", "vertical", "diagonal", "block"]
+CHANNELS = 1
+CLASS_NAMES: List[str] = [
+    "T-shirt/top", "Trouser", "Pullover", "Dress", "Coat",
+    "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot",
+]
 N_CLASSES = len(CLASS_NAMES)
 
 
-def _draw(kind: int, size: int, rng: np.random.Generator) -> np.ndarray:
-    """Return a float32 [size, size] image in [0, 1] for the given class."""
-    img = np.zeros((size, size), dtype=np.float32)
-    if kind == 0:  # horizontal bar
-        r = int(rng.integers(3, size - 3))
-        t = int(rng.integers(1, 3))
-        img[max(0, r - t) : r + t, :] = 1.0
-    elif kind == 1:  # vertical bar
-        c = int(rng.integers(3, size - 3))
-        t = int(rng.integers(1, 3))
-        img[:, max(0, c - t) : c + t] = 1.0
-    elif kind == 2:  # diagonal line
-        t = int(rng.integers(1, 3))
-        for i in range(size):
-            for dj in range(-t, t + 1):
-                j = i + dj
-                if 0 <= j < size:
-                    img[i, j] = 1.0
-    else:  # filled block
-        s = int(rng.integers(6, 12))
-        r = int(rng.integers(0, size - s))
-        c = int(rng.integers(0, size - s))
-        img[r : r + s, c : c + s] = 1.0
-    return img
+def load_fashion_mnist(root: str = "data") -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Download (first run only) and return uint8 arrays.
+
+    Returns ``(x_train [60000,28,28], y_train, x_test [10000,28,28], y_test)``.
+    """
+    from torchvision import datasets  # lazy: training-only dependency
+
+    train = datasets.FashionMNIST(root=root, train=True, download=True)
+    test = datasets.FashionMNIST(root=root, train=False, download=True)
+    return (
+        train.data.numpy().astype(np.uint8),
+        train.targets.numpy().astype(np.int64),
+        test.data.numpy().astype(np.uint8),
+        test.targets.numpy().astype(np.int64),
+    )
 
 
-def generate_one(
-    img_size: int = IMG_SIZE,
-    noise: float = 0.1,
-    seed: int = 0,
-    kind: Optional[int] = None,
-) -> Tuple[np.ndarray, int]:
-    """Return ``(image_uint8 [H, W], label)`` for a single synthetic image."""
-    rng = np.random.default_rng(seed)
-    k = int(rng.integers(0, N_CLASSES)) if kind is None else int(kind)
-    im = _draw(k, img_size, rng)
-    im = np.clip(im + rng.normal(0.0, noise, im.shape).astype(np.float32), 0.0, 1.0)
-    return (im * 255).astype(np.uint8), k
-
-
-def generate_images(
-    n_rows: int,
-    img_size: int = IMG_SIZE,
-    noise: float = 0.1,
+def make_splits(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    x_test: np.ndarray,
+    y_test: np.ndarray,
+    val_fraction: float = 0.1,
     seed: int = 42,
-) -> Tuple[np.ndarray, List[int]]:
-    """Return ``(images_uint8 [N, H, W], labels)`` for a synthetic dataset."""
+) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    """Deterministic train/val split of the official training set.
+
+    Returns ``{"train": (x, y), "val": (x, y), "test": (x, y)}``.
+    """
     rng = np.random.default_rng(seed)
-    images = np.empty((n_rows, img_size, img_size), dtype=np.uint8)
-    labels: List[int] = []
-    for i in range(n_rows):
-        k = int(rng.integers(0, N_CLASSES))
-        im = _draw(k, img_size, rng)
-        im = np.clip(im + rng.normal(0.0, noise, im.shape).astype(np.float32), 0.0, 1.0)
-        images[i] = (im * 255).astype(np.uint8)
-        labels.append(k)
-    return images, labels
+    idx = rng.permutation(len(x_train))
+    n_val = int(len(x_train) * val_fraction)
+    val_idx, train_idx = idx[:n_val], idx[n_val:]
+    return {
+        "train": (x_train[train_idx], y_train[train_idx]),
+        "val": (x_train[val_idx], y_train[val_idx]),
+        "test": (x_test, y_test),
+    }
+
+
+def to_gray_28(img: Image.Image) -> np.ndarray:
+    """Convert any PIL image to the model's input format: [28, 28] uint8 grayscale.
+
+    Used by the API for uploads. Note: Fashion-MNIST items are light-on-dark;
+    an arbitrary photo is not, which is part of the AI-literacy lesson.
+    """
+    return np.asarray(img.convert("L").resize((IMG_SIZE, IMG_SIZE)), dtype=np.uint8)

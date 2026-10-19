@@ -3,5 +3,5 @@
 # values and gives later products (with CLI training) a config to load.
 lr: 0.01
 batch_size: 32
-epochs: 15
+epochs: 10
 test_size: 0.2

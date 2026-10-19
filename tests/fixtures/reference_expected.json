@@ -1,0 +1,16 @@
+{
+  "test_index": 877,
+  "category": "both_correct",
+  "true_label": 4,
+  "true_class": "Coat",
+  "baseline": {
+    "label": 4,
+    "class": "Coat",
+    "confidence": 0.9180113673210144
+  },
+  "improved": {
+    "label": 4,
+    "class": "Coat",
+    "confidence": 0.9673882722854614
+  }
+}
