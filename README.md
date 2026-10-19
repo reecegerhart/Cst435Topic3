@@ -10,9 +10,9 @@
 
 | Tier | Platform | URL |
 |------|----------|-----|
-| **UI** | Streamlit Community Cloud | `https://<your-app>.streamlit.app` |
-| **API** | Render.com | `https://<your-api>.onrender.com` |
-| **Data** | Supabase | `https://<your-project-ref>.supabase.co` |
+| **UI** | Streamlit Cloud | `https://cst435topic3-rir3mms7vxalwudzcq8tds.streamlit.app/` |
+| **API** | Render.com | `https://cst435topic3.onrender.com/healthz` |
+| **Data** | Supabase | `https://cwojykvyxpwhywbhojvb.supabase.co` |
 
 > Replace the placeholders above with your real URLs once deployed.
 
